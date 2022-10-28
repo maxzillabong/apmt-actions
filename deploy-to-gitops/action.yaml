@@ -1,0 +1,68 @@
+name: Deploy to gitops
+description:  Create manifest with helm and deploy to gitops repo
+inputs:
+  appName:
+    description: The app name for the kubernetes deployment app
+    required: true
+  k8sNs:
+    description: The kuberneetes namespace
+    required: true
+  helmChart:
+    description: The helm chart.yml directory
+    required: true
+    default: helm/chart
+  helmValues:
+    description: The values file to override the default values file, This is needed for env specific deployment
+    required: true
+  gitOpsRepo:
+    description: The gitops github repository
+    required: true
+    default: Maersk-Global/apmt-hybrid-cloud-iwfms
+  targetManifest:
+    description: The manifest file it will generate. This path is where the manifest file will be created in the gitops repo
+    required: true
+  gitopsRepoToken:
+    description: The token with write priviliges of the gitops repo
+    required: true
+  githubToken:
+    description: The github token
+    required: true
+  githubOwner:
+    description: The repo owner
+    required: true
+  imageTag:
+    description: The image tag
+    required: true
+
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v3
+      name: Checkout repo
+      with:
+        repository: ${{ inputs.gitOpsRepo }}
+        token: ${{ inputs.gitopsRepoToken }}
+        path: gitops
+        ref: main
+    - name: helm login
+      shell: bash
+      run: |
+        echo ${{ inputs.githubToken }} | docker login ghcr.io --username ${{ inputs.githubOwner }} --password-stdin
+    - name: dependency
+      shell: bash
+      run: helm dependency build ${{ inputs.helmChart }}
+    - name: helm template
+      shell: bash
+      run: |
+        helm template ${{ inputs.appName }} ${{ inputs.helmChart }} -f ${{ inputs.helmValues }} -n ${{ inputs.k8sNs }} \
+        --set image.tag=${{ inputs.imageTag }} > ${{ inputs.targetManifest }}
+    - name: push
+      shell: bash
+      run: |
+        git config --global user.name 'MDN-automation'
+        git config --global user.email 'MDN-automation@maersk.com'
+        cd gitops
+        git add .
+        git commit -m "manifest for ${{ inputs.appName }} created/updated"
+        git push
